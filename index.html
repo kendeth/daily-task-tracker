@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>نظام متابعة المهام اليومية</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <style>
+    body {font-family: Arial; font-size: 14px; font-weight: bold; background: #f9f9f9; margin: 20px; direction: rtl;}
+    h1 {text-align: center; color: #2e7d32;}
+    .subtitle {text-align: center; font-size: 12px; color: #444; margin-bottom: 10px;}
+    .top-info {display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 15px;}
+    .card {background: #e0f2f1; padding: 10px 20px; margin: 5px; border-radius: 8px;}
+    .weather {display: flex; align-items: center; gap: 8px;}
+    .weather img {vertical-align: middle;}
+    form, .search-bar {display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 15px;}
+    input, button {padding: 8px; font-size: 14px; font-family: Arial; font-weight: bold; border: 1px solid #ccc; border-radius: 6px;}
+    input[type="text"], input[type="date"], input[type="time"] {flex: 1; min-width: 120px;}
+    button {background: #2e7d32; color: #fff; cursor: pointer;}
+    table {width: 100%; border-collapse: collapse; background: white;}
+    th, td {border: 1px solid #ddd; padding: 6px; text-align: center;}
+    tr.today {background-color: #e0f7fa !important;}
+    .alert {background: #d4edda; color: #155724; padding: 10px 20px; border-radius: 6px; margin: 10px auto; text-align: center; width: fit-content; animation: fadeOut 2s ease forwards;}
+    .alert.error {background: #f8d7da; color: #721c24;}
+    @keyframes fadeOut {0%, 80% {opacity: 1;} 100% {opacity: 0; display: none;}}
+    @media(max-width:600px){form,.search-bar{flex-direction:column;}table{font-size:12px}}
+    body {
+  background-color: #d2ece8;
+}
+table thead {
+  background-color: #00796b;
+  color: white;
+}
+button {
+  background-color: #00796b;
+  color: white;
+  border: none;
+}
+
+button:hover {
+  background-color: #00695c;
+}
+button.clear-search {
+  background-color: #c62828;
+}
+
+button.clear-search:hover {
+  background-color: #b71c1c;
+}
+.card {
+  background-color: #00796b;
+  color: white;
+}
+input[type="text"], input[type="date"], input[type="time"] {
+  background-color: white;
+  border: 1px solid #ccc;
+  color: #333;
+}
+.top-dates {
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  color: white;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+#date, #hijri {
+  color: white !important;
+}
+
+
+  </style>
+</head>
+<body>
+  
+  <h1>نظام متابعة المهام اليومية</h1>
+  <div class="subtitle">فكرة وبرمجة: سلمان الثبيتي</div>
+  <div class="top-info">
+   <div class="card top-dates" style="display: flex; gap: 20px; justify-content: center;">
+  <div id="hijri" style="color: white;"></div>
+  <div id="date" style="color: white;"></div>
+</div>
+
+
+
+    <div class="card"><strong>الوقت:</strong> <span id="clock"></span></div>
+    <div class="card weather">
+      <img id="wicon" width="32" alt=""/>
+      <span id="city">جارٍ التحميل...</span>
+      <span id="weatherDesc"></span>
+      <span id="temp"></span>°C
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <input type="text" id="searchTask" placeholder="بحث بالمهمة" oninput="renderTasks()" />
+    <input type="date" id="searchDate" onchange="renderTasks()" />
+    <button onclick="clearSearch()">مسح البحث</button>
+  </div>
+
+  <form onsubmit="submitTask(event)">
+    <input type="text" id="task" placeholder="المهمة"/>
+    <input type="date" id="dateInput"/>
+    <input type="time" id="timeInput"/>
+    <button type="submit">حفظ المهمة</button>
+  </form>
+
+  <div id="alertContainer"></div>
+
+  <table id="taskTable">
+    <thead><tr><th>المهمة</th><th>التاريخ</th><th>الوقت</th><th>إنجاز</th><th>الإجراءات</th></tr></thead>
+
+    <tbody></tbody>
+  </table>
+
+ <script>
+  let tasks = [], db, editId = null;
+
+  function showAlert(msg, type='success') {
+    const d = document.createElement('div');
+    d.className = 'alert' + (type === 'error' ? ' error' : '');
+    d.textContent = msg;
+    document.getElementById('alertContainer').appendChild(d);
+    setTimeout(() => d.remove(), 2000);
+  }
+
+  function submitTask(e) {
+    e.preventDefault();
+    const t = task.value.trim(), d = dateInput.value, ti = timeInput.value;
+    if (!t || !d || !ti) return showAlert('جميع الحقول مطلوبة', 'error');
+    if (editId === null) {
+      let tx = db.transaction(["tasks"], "readwrite");
+      tx.objectStore("tasks").add({ task: t, date: d, time: ti, done: false, createdAt: Date.now() });
+      tx.oncomplete = loadTasksFromDB;
+    } else {
+      let tx = db.transaction(["tasks"], "readwrite");
+      tx.objectStore("tasks").put({ id: editId, task: t, date: d, time: ti, done: false, createdAt: Date.now() });
+      tx.oncomplete = loadTasksFromDB;
+      editId = null;
+    }
+    task.value = dateInput.value = timeInput.value = ''; task.focus();
+  }
+
+  function renderTasks() {
+    const tbody = document.querySelector('tbody');
+    const sT = searchTask.value.trim().toLowerCase();
+    const sD = searchDate.value;
+    tbody.innerHTML = '';
+    const today = new Date();
+
+    const filtered = tasks.filter(t => {
+      const matchTask = !sT || t.task.toLowerCase().includes(sT);
+      const matchDate = !sD || t.date === sD;
+      return matchTask && matchDate;
+    });
+
+    const undone = filtered.filter(t => !t.done).sort((a, b) => a.createdAt - b.createdAt);
+    const done = filtered.filter(t => t.done).sort((a, b) => a.createdAt - b.createdAt);
+    const allToRender = [...undone, ...done];
+
+    allToRender.forEach(t => {
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${t.task}</td>
+<td><small>${formatHijri(t.date)}<br>${t.date}</small></td>
+<td>${t.time}</td>
+<td><input type="checkbox" ${t.done ? 'checked' : ''}></td>
+<td><button onclick="startEdit(${t.id})">تعديل</button>
+    <button onclick="confirmDelete(${t.id})">حذف</button></td>`;
+
+      row.querySelector('input').onchange = () => {
+        t.done = !t.done;
+        let tx = db.transaction(["tasks"], "readwrite");
+        tx.objectStore("tasks").put(t);
+        tx.oncomplete = loadTasksFromDB;
+      };
+      tbody.appendChild(row);
+    });
+  }
+
+  function startEdit(id) {
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      editId = t.id;
+      task.value = t.task;
+      dateInput.value = t.date;
+      timeInput.value = t.time;
+    }
+  }
+
+  function confirmDelete(id) {
+    Swal.fire({
+      title: 'هل أنت متأكد؟', text: 'لن تتمكن من التراجع!', icon: 'warning',
+      showCancelButton: true, confirmButtonColor: '#2e7d32', cancelButtonColor: '#d33',
+      confirmButtonText: 'نعم، احذفها', cancelButtonText: 'إلغاء'
+    }).then(res => {
+      if (res.isConfirmed) {
+        let tx = db.transaction(["tasks"], "readwrite");
+        tx.objectStore("tasks").delete(id);
+        tx.oncomplete = loadTasksFromDB;
+        showAlert('تم الحذف');
+      }
+    });
+  }
+
+  function clearSearch() {
+    searchTask.value = '';
+    searchDate.value = '';
+    renderTasks();
+  }
+
+  function formatHijri(g) {
+    return new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
+      day: 'numeric', month: 'numeric', year: 'numeric'
+    }).format(new Date(g));
+  }
+
+  function updateTime() {
+    const now = new Date();
+    clock.textContent = now.toLocaleTimeString('ar-SA');
+    date.textContent = now.toISOString().split("T")[0];
+    hijri.textContent = new Intl.DateTimeFormat('ar-SA-u-ca-islamic', {
+      day: 'numeric', month: 'numeric', year: 'numeric'
+    }).format(now);
+  }
+
+  setInterval(updateTime, 1000); updateTime();
+
+  // الطقس
+  if ('geolocation' in navigator) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const lat = pos.coords.latitude, lon = pos.coords.longitude;
+      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&lang=ar&appid=ae79622e6ccc4f5186e9851163ecee50`;
+      fetch(url).then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(data => {
+          if (data && data.name && data.main && data.weather) {
+            city.textContent = `${data.name}, ${data.sys.country}`;
+            temp.textContent = Math.round(data.main.temp);
+            weatherDesc.textContent = data.weather[0].description;
+            wicon.src = `https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png`;
+          } else city.textContent = 'لا توجد بيانات';
+        }).catch(() => city.textContent = 'خطأ في جلب الطقس');
+    }, err => city.textContent = 'رفض المستخدم الموقع');
+  } else {
+    city.textContent = 'الموقع غير مدعوم';
+  }
+
+  // قاعدة البيانات
+  window.onload = function () {
+    let request = indexedDB.open("DailyTasksDB", 1);
+    request.onerror = function () { console.error("فشل في فتح قاعدة البيانات"); };
+    request.onsuccess = function () {
+      db = request.result;
+      loadTasksFromDB();
+    };
+    request.onupgradeneeded = function (e) {
+      db = e.target.result;
+      let store = db.createObjectStore("tasks", { keyPath: "id", autoIncrement: true });
+      store.createIndex("task", "task", { unique: false });
+      store.createIndex("date", "date", { unique: false });
+      store.createIndex("createdAt", "createdAt", { unique: false });
+    };
+  };
+
+  function loadTasksFromDB() {
+    let tx = db.transaction(["tasks"], "readonly");
+    let store = tx.objectStore("tasks");
+    let request = store.getAll();
+    request.onsuccess = function () {
+      tasks = request.result;
+      renderTasks();
+    };
+  }
+</script>
+</body>
+</html>
